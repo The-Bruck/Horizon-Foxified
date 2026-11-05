@@ -1,0 +1,51 @@
+name: Build APK
+
+# Put HorizonModConverter-source.zip in the repo root (next to .github/), push, and this builds it.
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Unzip source
+      run: |
+        test -f HorizonModConverter-source.zip || { echo "HorizonModConverter-source.zip missing from repo root"; exit 1; }
+        mkdir -p src && unzip -q HorizonModConverter-source.zip -d src
+
+    - uses: actions/setup-java@v4
+      with: { java-version: '17', distribution: 'temurin', cache: gradle }
+
+    - uses: dtolnay/rust-toolchain@stable
+      with: { targets: aarch64-linux-android }
+
+    - name: Install cargo-ndk
+      run: cargo install cargo-ndk --locked
+
+    - name: Test Rust engine
+      working-directory: src/rust-core
+      run: cargo test --workspace
+
+    - name: Build debug and release APKs
+      working-directory: src/android
+      run: |
+        export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_ROOT}"
+        echo "NDK: $ANDROID_NDK_HOME"
+        chmod +x gradlew
+        ./gradlew assembleDebug assembleRelease --stacktrace
+
+    - name: Collect APKs
+      run: |
+        mkdir -p dist
+        cp src/android/app/build/outputs/apk/debug/app-debug.apk dist/HorizonModConverter-debug.apk
+        cp src/android/app/build/outputs/apk/release/app-release.apk dist/HorizonModConverter.apk
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: apks
+        path: dist/*.apk
